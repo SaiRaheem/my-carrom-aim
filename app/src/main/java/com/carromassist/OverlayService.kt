@@ -29,17 +29,16 @@ class OverlayService : Service() {
 
     private lateinit var wm: WindowManager
     private lateinit var overlayView: OverlayView
-    private lateinit var aimHandle: ImageView // Floating joystick like bitAIM+
+    private lateinit var aimHandle: ImageView
     
     private lateinit var projection: MediaProjection
     private lateinit var imageReader: ImageReader
     private lateinit var virtualDisplay: VirtualDisplay
     
-    // Position of the "Pro Handle" for aiming
     private var aimX = -1f; private var aimY = -1f
     private val handler = Handler(Looper.getMainLooper())
-    private val frameInterval = 38L // High-Speed
-    
+    private var lastMatchTime = 0L
+
     private var screenW = 0; private var screenH = 0; private var screenDensity = 0
     private var bufferBmp: Bitmap? = null; private var procBmp: Bitmap? = null
 
@@ -73,31 +72,23 @@ class OverlayService : Service() {
 
     private fun setupOverlays() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        
-        // 1. The Laser Overlay (Touch-Through!)
         overlayView = OverlayView(this)
-        val laserParams = LayoutParams(
-            MATCH_PARENT, MATCH_PARENT, TYPE_APPLICATION_OVERLAY,
+        val laserParams = LayoutParams(MATCH_PARENT, MATCH_PARENT, TYPE_APPLICATION_OVERLAY,
             FLAG_NOT_FOCUSABLE or FLAG_NOT_TOUCHABLE or FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START }
         wm.addView(overlayView, laserParams)
 
-        // 2. The Aim Handle (Draggable Controller)
         aimHandle = ImageView(this).apply {
-            setImageResource(android.R.drawable.presence_online) // Floating icon
+            setImageResource(android.R.drawable.presence_online)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(Color.argb(50, 0, 255, 200)) // Light glow
+            setBackgroundColor(Color.argb(80, 0, 255, 200))
         }
         
-        val handleParams = LayoutParams(
-            150, 150, TYPE_APPLICATION_OVERLAY,
+        val handleParams = LayoutParams(150, 150, TYPE_APPLICATION_OVERLAY,
             FLAG_NOT_FOCUSABLE or FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
+            PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = screenW / 2 - 75
-            y = screenH - 300
+            x = screenW / 2 - 75; y = screenH - 350
         }
 
         aimHandle.setOnTouchListener(object : View.OnTouchListener {
@@ -106,16 +97,13 @@ class OverlayService : Service() {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = handleParams.x; initialY = handleParams.y
-                        startX = event.rawX; startY = event.rawY
-                        return true
+                        startX = event.rawX; startY = event.rawY; return true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         handleParams.x = initialX + (event.rawX - startX).toInt()
                         handleParams.y = initialY + (event.rawY - startY).toInt()
-                        aimX = handleParams.x.toFloat() + 75f
-                        aimY = handleParams.y.toFloat() + 75f
-                        wm.updateViewLayout(aimHandle, handleParams)
-                        return true
+                        aimX = handleParams.x.toFloat() + 75f; aimY = handleParams.y.toFloat() + 75f
+                        wm.updateViewLayout(aimHandle, handleParams); return true
                     }
                 }
                 return false
@@ -126,14 +114,12 @@ class OverlayService : Service() {
 
     private fun scheduleLoop() {
         if (!isRunning) return
-        handler.postDelayed({
-            processFrame()
-            scheduleLoop()
-        }, frameInterval)
+        // bitAIM+ logic: if no board seen for 2 seconds, slow down the loop to save battery
+        val interval = if (SystemClock.uptimeMillis() - lastMatchTime > 2000) 500L else 38L
+        handler.postDelayed({ processFrame(); scheduleLoop() }, interval)
     }
 
     private fun processFrame() {
-        // bitAIM+ Security: Only process if Carrom Pool is installed/active
         val image = try { imageReader.acquireLatestImage() } catch (_: Exception) { null } ?: return
         try {
             val pl = image.planes[0]
@@ -148,11 +134,13 @@ class OverlayService : Service() {
             Thread {
                 try {
                     val result = VisionEngine.detect(procBmp!!)
+                    if (result.boardRect != null) {
+                        lastMatchTime = SystemClock.uptimeMillis() // Board detected! Start AI
+                    }
+
                     result.striker?.let { striker ->
-                        // Direction comes from our floating handle!
                         val dx = (if (aimX > 0) aimX else striker.cx) - striker.cx
                         val dy = (if (aimY > 0) aimY else striker.cy - 200f) - striker.cy
-                        
                         val (nx, ny) = PhysicsEngine.normalize(dx, dy)
                         val traj = PhysicsEngine.trace(striker.cx, striker.cy, nx, ny, result.coins, striker.r)
                         handler.post { overlayView.update(result, traj) }
@@ -167,10 +155,10 @@ class OverlayService : Service() {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
         val stop = PendingIntent.getService(this, 0, Intent(this, OverlayService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, NOTIF_CHANNEL)
-            .setContentTitle("PRO Mode Active")
-            .setContentText("Drag the handle to aim!")
+            .setContentTitle("Sentry Mode: ACTIVE")
+            .setContentText("Watching for board...")
             .setSmallIcon(android.R.drawable.ic_menu_view)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stop)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kill", stop)
             .build()
     }
 
@@ -185,34 +173,24 @@ class OverlayService : Service() {
 class OverlayView(context: Context) : View(context) {
     private var detection: VisionEngine.DetectionResult? = null
     private var trajectory: TrajectoryResult? = null
-
     private val COLOR_MAIN = Color.parseColor("#00FFC8")
     private val aimP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_MAIN; strokeWidth = 5f; style = Paint.Style.STROKE; pathEffect = DashPathEffect(floatArrayOf(30f, 20f), 0f); setShadowLayer(15f, 0f, 0f, COLOR_MAIN) }
-    private val rebP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFB400"); strokeWidth = 4f; style = Paint.Style.STROKE; pathEffect = DashPathEffect(floatArrayOf(15f, 15f), 0f); setShadowLayer(10f, 0f, 0f, Color.YELLOW) }
-    private val defP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; strokeWidth = 5f; style = Paint.Style.STROKE; setShadowLayer(15f, 0f, 0f, Color.RED) }
+    private val rebP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FFB400"); strokeWidth = 5f; style = Paint.Style.STROKE; pathEffect = DashPathEffect(floatArrayOf(20f, 15f), 0f); setShadowLayer(10f, 0f, 0f, Color.YELLOW) }
+    private val defP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.RED; strokeWidth = 4f; style = Paint.Style.STROKE; setShadowLayer(15f, 0f, 0f, Color.RED) }
     private val ghstP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(120, 0, 255, 200); style = Paint.Style.FILL }
     private val txtP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_MAIN; textSize = 40f; typeface = Typeface.DEFAULT_BOLD }
 
-    fun update(d: VisionEngine.DetectionResult, t: TrajectoryResult?) {
-        detection = d
-        trajectory = t
-        invalidate()
-    }
+    fun update(d: VisionEngine.DetectionResult, t: TrajectoryResult?) { detection = d; trajectory = t; invalidate() }
 
     override fun onDraw(canvas: Canvas) {
         val det = detection ?: return
-        setLayerType(LAYER_TYPE_SOFTWARE, null)
+        if (det.boardRect == null) return // bitAIM+ logic: Don't draw if not in a match
         
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
         val traj = trajectory ?: return
-        traj.segments.forEachIndexed { i, (a, b) ->
-            canvas.drawLine(a.x, a.y, b.x, b.y, if (i == 0) aimP else rebP)
-        }
-        traj.ghostBallCenter?.let { g -> 
-            det.striker?.let { s -> canvas.drawCircle(g.x, g.y, s.r, ghstP) } 
-        }
+        traj.segments.forEachIndexed { i, (a, b) -> canvas.drawLine(a.x, a.y, b.x, b.y, if (i == 0) aimP else rebP) }
+        traj.ghostBallCenter?.let { g -> det.striker?.let { s -> canvas.drawCircle(g.x, g.y, s.r, ghstP) } }
         traj.coinDeflectSegments.forEach { (a, b) -> canvas.drawLine(a.x, a.y, b.x, b.y, defP) }
-        if (traj.pocketedCoin != null) {
-            canvas.drawText("POCKET!", 100f, 200f, txtP)
-        }
+        if (traj.pocketedCoin != null) canvas.drawText("POCKET!", 100f, 200f, txtP)
     }
 }
