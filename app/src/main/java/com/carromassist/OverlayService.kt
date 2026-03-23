@@ -74,6 +74,11 @@ class OverlayService : Service() {
             intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
         }
 
+        val metrics = resources.displayMetrics
+        screenW       = metrics.widthPixels
+        screenH       = metrics.heightPixels
+        screenDensity = metrics.densityDpi
+
         if (resultData != null) {
             setupMediaProjection(resultCode, resultData)
             setupOverlay()
