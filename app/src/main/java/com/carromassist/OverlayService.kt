@@ -2,6 +2,7 @@ package com.carromassist
 
 import android.app.*
 import android.content.*
+import android.content.pm.ServiceInfo
 import android.graphics.*
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -52,21 +53,34 @@ class OverlayService : Service() {
 
     override fun onBind(intent: Intent?) = null
 
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent == null || intent.action == "STOP") {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        
         isRunning = true
-        startForeground(1, buildNotification())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } else {
+            startForeground(1, buildNotification())
+        }
 
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
-        val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)!!
+        val resultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
+        }
 
-        val metrics = resources.displayMetrics
-        screenW       = metrics.widthPixels
-        screenH       = metrics.heightPixels
-        screenDensity = metrics.densityDpi
-
-        setupMediaProjection(resultCode, resultData)
-        setupOverlay()
-        scheduleProcessing()
+        if (resultData != null) {
+            setupMediaProjection(resultCode, resultData)
+            setupOverlay()
+            scheduleProcessing()
+        } else {
+            stopSelf()
+        }
 
         return START_STICKY
     }
