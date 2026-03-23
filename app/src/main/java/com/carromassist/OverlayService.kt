@@ -169,21 +169,26 @@ class OverlayService : Service() {
 
             // Run detection on background thread
             Thread {
-                val result = VisionEngine.detect(croppedBmp)
-                croppedBmp.recycle()
-                lastDetection = result
+                try {
+                    val result = VisionEngine.detect(croppedBmp)
+                    croppedBmp.recycle()
+                    lastDetection = result
 
-                // Compute trajectory from striker toward touch point
-                result.striker?.let { striker ->
-                    val aimX = if (touchX > 0) touchX else striker.cx
-                    val aimY = if (touchY > 0) touchY else striker.cy - 100f
-                    val (dx, dy) = PhysicsEngine.normalize(aimX - striker.cx, aimY - striker.cy)
-                    val traj = PhysicsEngine.trace(striker.cx, striker.cy, dx, dy,
-                        result.coins, striker.r)
-                    handler.post { overlayView.update(result, traj) }
-                } ?: handler.post { overlayView.update(result, null) }
+                    // Compute trajectory from striker toward touch point
+                    result.striker?.let { striker ->
+                        val aimX = if (touchX > 0) touchX else striker.cx
+                        val aimY = if (touchY > 0) touchY else striker.cy - 100f
+                        val (dx, dy) = PhysicsEngine.normalize(aimX - striker.cx, aimY - striker.cy)
+                        val traj = PhysicsEngine.trace(striker.cx, striker.cy, dx, dy,
+                            result.coins, striker.r)
+                        handler.post { overlayView.update(result, traj) }
+                    } ?: handler.post { overlayView.update(result, null) }
+                } catch (e: Exception) {
+                    handler.post { Toast.makeText(this@OverlayService, "Error: ${e.message}", Toast.LENGTH_SHORT).show() }
+                }
             }.start()
-
+        } catch (e: Exception) {
+             handler.post { Toast.makeText(this@OverlayService, "Vision Error: ${e.message}", Toast.LENGTH_SHORT).show() }
         } finally {
             image.close()
         }

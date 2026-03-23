@@ -1,7 +1,5 @@
 package com.carromassist
 
-import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -11,6 +9,7 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import org.opencv.android.OpenCVLoader
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,6 +26,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // Initialize OpenCV
+        if (!OpenCVLoader.initDebug()) {
+            Toast.makeText(this, "OpenCV Load Failed — critical error!", Toast.LENGTH_LONG).show()
+        }
 
         mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
                 as MediaProjectionManager
@@ -106,9 +110,11 @@ class MainActivity : AppCompatActivity() {
     /** Tries to open Carrom Pool directly */
     private fun launchCarromPool() {
         try {
-            val intent = packageManager.getLaunchIntentForPackage("com.miniclip.carrompool")
-                ?: packageManager.getLaunchIntentForPackage("com.miniclip.8ballpoolmultiplayer")
+            val intent = packageManager.getLaunchIntentForPackage("com.miniclip.carrom")
+                ?: packageManager.getLaunchIntentForPackage("com.miniclip.carrompool")
             intent?.let { startActivity(it) }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+             Toast.makeText(this, "Could not open game: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 }
