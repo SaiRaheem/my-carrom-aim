@@ -10,7 +10,9 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.*
 import android.view.*
+import android.view.WindowManager.LayoutParams
 import android.view.WindowManager.LayoutParams.*
+import android.view.Gravity
 import androidx.core.app.NotificationCompat
 import kotlin.math.*
 
@@ -105,7 +107,7 @@ class OverlayService : Service() {
             FLAG_NOT_FOCUSABLE or FLAG_NOT_TOUCH_MODAL or FLAG_WATCH_OUTSIDE_TOUCH or FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            this.gravity = Gravity.TOP or Gravity.START
         }
 
         // Forward touches to detect aim direction
