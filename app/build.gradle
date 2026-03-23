@@ -1,107 +1,40 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// app/build.gradle
-// ─────────────────────────────────────────────────────────────────────────────
 plugins {
     id 'com.android.application'
     id 'kotlin-android'
 }
 
 android {
+    namespace 'com.carromassist'      // Required by AGP 8+
     compileSdk 34
+
     defaultConfig {
         applicationId "com.carromassist"
-        minSdk 29          // Android 10+ required for MediaProjection foreground type
+        minSdk 29
         targetSdk 34
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = '17' }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'com.google.android.material:material:1.12.0'
 
-    // OpenCV Android SDK
-    // Download from: https://opencv.org/releases/ → Android pack
-    // Then: File > New > Import Module → select OpenCV-android-sdk/sdk
-    // And add:  implementation project(':opencv')
-    // OR use the Maven artifact (easier):
+    // OpenCV via Maven (no manual download needed)
     implementation 'org.opencv:opencv:4.9.0'
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SETUP INSTRUCTIONS
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// 1. CREATE PROJECT
-//    Android Studio → New Project → Empty Activity
-//    Package: com.carromassist   Language: Kotlin   MinSDK: 29
-//
-// 2. ADD FILES
-//    Copy all .kt files into app/src/main/java/com/carromassist/
-//    Replace AndroidManifest.xml
-//    Replace build.gradle (app level) with this file
-//
-// 3. LAYOUT  (res/layout/activity_main.xml)
-//    <?xml version="1.0" encoding="utf-8"?>
-//    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-//        android:layout_width="match_parent" android:layout_height="match_parent"
-//        android:orientation="vertical" android:gravity="center" android:padding="24dp"
-//        android:background="#080a0d">
-//      <TextView android:id="@+id/statusText"
-//          android:layout_width="wrap_content" android:layout_height="wrap_content"
-//          android:text="Inactive" android:textColor="#00ffcc"
-//          android:fontFamily="monospace" android:textSize="16sp"
-//          android:layout_marginBottom="32dp"/>
-//      <Button android:id="@+id/btnStart"
-//          android:layout_width="match_parent" android:layout_height="wrap_content"
-//          android:text="START ASSIST" android:layout_marginBottom="16dp"/>
-//      <Button android:id="@+id/btnStop"
-//          android:layout_width="match_parent" android:layout_height="wrap_content"
-//          android:text="STOP" android:enabled="false"/>
-//    </LinearLayout>
-//
-// 4. DEVELOPER OPTIONS on phone
-//    Settings → Developer Options → USB Debugging ON
-//    Also enable: "Disable permission monitoring" if available
-//
-// 5. BUILD & INSTALL
-//    ./gradlew installDebug
-//    or Run button in Android Studio
-//
-// 6. ON DEVICE
-//    a) Open CarromAssist app
-//    b) Tap START ASSIST
-//    c) Grant "Display over other apps"
-//    d) Grant screen capture (tap Start Now)
-//    e) App auto-launches Carrom Pool
-//    f) Play normally — aim lines appear on screen
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// TUNING TIPS
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// If detection is off (wrong board skin / lighting):
-//   → Open VisionEngine.kt
-//   → Use a color picker on a screenshot of Carrom Pool
-//   → Adjust HSV ranges for STRIKER_LOWER/UPPER, WHITE/BLACK/RED coins
-//
-// If aim line flickers:
-//   → Increase processInterval in OverlayService (e.g. 80L instead of 60L)
-//
-// If aim line is wrong direction:
-//   → The touch tracking reads where your finger is on screen
-//   → The striker-to-touch vector is the aim direction
-//   → Works best when you touch ABOVE the striker (like in the game)
-//
-// ─────────────────────────────────────────────────────────────────────────────
