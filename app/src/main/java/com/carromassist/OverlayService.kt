@@ -42,7 +42,7 @@ class OverlayService : Service() {
     private var screenW = 0; private var screenH = 0; private var screenDensity = 0
     private var bufferBmp: Bitmap? = null; private var procBmp: Bitmap? = null
 
-    override fun onBind(intent: Intent?) = null
+    override fun onBind(v: Intent?) = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "STOP") { stopSelf(); return START_NOT_STICKY }
@@ -59,7 +59,7 @@ class OverlayService : Service() {
         setupOverlays()
         scheduleLoop()
         
-        return START_STICKY
+        return START_STICKY // bitAIM+ logic: Ensure service stays alive 24/7!
     }
 
     private fun setupMediaProjection(code: Int, data: Intent) {
@@ -81,7 +81,7 @@ class OverlayService : Service() {
         aimHandle = ImageView(this).apply {
             setImageResource(android.R.drawable.presence_online)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            setBackgroundColor(Color.argb(80, 0, 255, 200))
+            setBackgroundColor(Color.argb(90, 0, 255, 200)) // Stronger glow!
         }
         
         val handleParams = LayoutParams(150, 150, TYPE_APPLICATION_OVERLAY,
@@ -114,8 +114,7 @@ class OverlayService : Service() {
 
     private fun scheduleLoop() {
         if (!isRunning) return
-        // bitAIM+ logic: if no board seen for 2 seconds, slow down the loop to save battery
-        val interval = if (SystemClock.uptimeMillis() - lastMatchTime > 2000) 500L else 38L
+        val interval = if (SystemClock.uptimeMillis() - lastMatchTime > 3000) 600L else 38L
         handler.postDelayed({ processFrame(); scheduleLoop() }, interval)
     }
 
@@ -134,13 +133,11 @@ class OverlayService : Service() {
             Thread {
                 try {
                     val result = VisionEngine.detect(procBmp!!)
-                    if (result.boardRect != null) {
-                        lastMatchTime = SystemClock.uptimeMillis() // Board detected! Start AI
-                    }
+                    if (result.boardRect != null) lastMatchTime = SystemClock.uptimeMillis()
 
                     result.striker?.let { striker ->
                         val dx = (if (aimX > 0) aimX else striker.cx) - striker.cx
-                        val dy = (if (aimY > 0) aimY else striker.cy - 200f) - striker.cy
+                        val dy = (if (aimY > 0) aimY else striker.cy - 300f) - striker.cy
                         val (nx, ny) = PhysicsEngine.normalize(dx, dy)
                         val traj = PhysicsEngine.trace(striker.cx, striker.cy, nx, ny, result.coins, striker.r)
                         handler.post { overlayView.update(result, traj) }
@@ -155,16 +152,15 @@ class OverlayService : Service() {
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
         val stop = PendingIntent.getService(this, 0, Intent(this, OverlayService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, NOTIF_CHANNEL)
-            .setContentTitle("Sentry Mode: ACTIVE")
-            .setContentText("Watching for board...")
+            .setContentTitle("SENTRY: ON")
+            .setContentText("Watching for striker...")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kill", stop)
             .build()
     }
 
     override fun onDestroy() {
-        isRunning = false
-        if (::aimHandle.isInitialized) wm.removeView(aimHandle)
+        isRunning = false; if (::aimHandle.isInitialized) wm.removeView(aimHandle)
         if (::overlayView.isInitialized) wm.removeView(overlayView)
         super.onDestroy()
     }
@@ -184,7 +180,9 @@ class OverlayView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val det = detection ?: return
-        if (det.boardRect == null) return // bitAIM+ logic: Don't draw if not in a match
+        
+        // TURN SENTRY: Only show lines if our striker is seen (i.e. it's our turn!)
+        if (det.boardRect == null || det.striker == null) return
         
         setLayerType(LAYER_TYPE_SOFTWARE, null)
         val traj = trajectory ?: return

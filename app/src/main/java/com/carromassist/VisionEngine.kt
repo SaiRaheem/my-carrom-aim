@@ -8,17 +8,13 @@ import org.opencv.imgproc.Imgproc
 
 object VisionEngine {
 
-    // HSV ranges maintained for color labeling
-    private val STRIKER_LOWER = Scalar(15.0, 100.0, 100.0)
+    // Tighter, more professional HSV ranges (Match-Day Tuning)
+    private val STRIKER_LOWER = Scalar(15.0, 110.0, 140.0) // Stronger Yellow/Gold
     private val STRIKER_UPPER = Scalar(40.0, 255.0, 255.0)
-    private val WHITE_LOWER = Scalar(0.0, 0.0, 180.0)
-    private val WHITE_UPPER = Scalar(180.0, 50.0, 255.0)
-    private val RED_LOWER1 = Scalar(0.0, 100.0, 100.0)
-    private val RED_UPPER1 = Scalar(10.0, 255.0, 255.0)
-    private val RED_LOWER2 = Scalar(165.0, 100.0, 100.0)
-    private val RED_UPPER2 = Scalar(180.0, 255.0, 255.0)
-    private val BOARD_LOWER = Scalar(30.0, 40.0, 40.0)
-    private val BOARD_UPPER = Scalar(100.0, 255.0, 240.0)
+    
+    // Board detection (looking for the actual match surface green)
+    private val BOARD_LOWER = Scalar(35.0, 40.0, 30.0)
+    private val BOARD_UPPER = Scalar(85.0, 255.0, 250.0)
 
     data class DetectionResult(
         val striker: Circle?,
@@ -31,21 +27,27 @@ object VisionEngine {
         val src = Mat()
         Utils.bitmapToMat(bitmap, src)
 
-        val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGB2GRAY)
-        Imgproc.medianBlur(gray, gray, 5)
-
         val hsv = Mat()
         Imgproc.cvtColor(src, hsv, Imgproc.COLOR_RGB2HSV)
 
         val boardRect = detectBoard(hsv, src.width(), src.height())
-        val pockets   = boardRect?.let { derivePockets(it) } ?: emptyList()
+        
+        // bitAIM+ logic: If we don't have a solid board, stop processing to save battery!
+        if (boardRect == null) {
+            src.release(); hsv.release()
+            return DetectionResult(null, emptyList(), null, emptyList())
+        }
 
-        // Robust Circle Detection (Shape-based, not just color)
-        // This is where bitAIM+ logic is mirrored
+        val pockets = derivePockets(boardRect)
+        
+        val gray = Mat()
+        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGB2GRAY)
+        Imgproc.medianBlur(gray, gray, 5)
+
         val circles = Mat()
+        // Hough tuning: param2=25 is sensitive, 30 is strict. Using 32 for pro-accuracy.
         Imgproc.HoughCircles(gray, circles, Imgproc.HOUGH_GRADIENT,
-            1.0, 30.0, 100.0, 25.0, 15, 45)
+            1.2, 35.0, 110.0, 32.0, 14, 42)
 
         var striker: Circle? = null
         val coins = mutableListOf<Circle>()
@@ -53,31 +55,18 @@ object VisionEngine {
         if (!circles.empty()) {
             for (i in 0 until circles.cols()) {
                 val data = circles.get(0, i) ?: continue
-                val cx = data[0].toFloat()
-                val cy = data[1].toFloat()
-                val r  = data[2].toFloat()
-                val c  = Circle(cx, cy, r)
+                val cx = data[0].toFloat(); val cy = data[1].toFloat(); val r = data[2].toFloat()
+                
+                // IGNORE everything outside the board bounds! (Crucial fix for menu clutter)
+                if (cx < boardRect.left || cx > boardRect.right || cy < boardRect.top || cy > boardRect.bottom) continue
 
-                // Sample the HSV color at circle center to identify type
                 val hsvValue = hsv.get(cy.toInt(), cx.toInt()) ?: doubleArrayOf(0.0, 0.0, 0.0)
-                val h = hsvValue[0]; val s = hsvValue[1]; val v = hsvValue[2]
-
-                // Labeling Logic
-                if (isStriker(h, s, v)) {
-                    striker = c
+                if (isStriker(hsvValue[0], hsvValue[1], hsvValue[2])) {
+                    striker = Circle(cx, cy, r)
                 } else {
-                    coins.add(c)
+                    coins.add(Circle(cx, cy, r))
                 }
             }
-        }
-
-        // Feed board bounds into PhysicsEngine
-        boardRect?.let {
-            PhysicsEngine.boardLeft   = it.left
-            PhysicsEngine.boardTop    = it.top
-            PhysicsEngine.boardRight  = it.right
-            PhysicsEngine.boardBottom = it.bottom
-            PhysicsEngine.pockets     = pockets
         }
 
         src.release(); gray.release(); hsv.release(); circles.release()
@@ -87,14 +76,20 @@ object VisionEngine {
     private fun detectBoard(hsv: Mat, w: Int, h: Int): android.graphics.RectF? {
         val mask = Mat()
         Core.inRange(hsv, BOARD_LOWER, BOARD_UPPER, mask)
-        val contours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(mask, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+        val ctrs = mutableListOf<MatOfPoint>()
+        Imgproc.findContours(mask, ctrs, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
         mask.release()
 
-        val largest = contours.maxByOrNull { Imgproc.contourArea(it) } ?: return null
-        if (Imgproc.contourArea(largest) < w * h * 0.15) return null
+        val largest = ctrs.maxByOrNull { Imgproc.contourArea(it) } ?: return null
+        val area = Imgproc.contourArea(largest)
+        if (area < w * h * 0.15) return null // Must be at least 15% of screen
 
         val br = Imgproc.boundingRect(largest)
+        
+        // NEW Pro Check: Carrom boards are roughly SQUARE (ratio 0.8 to 1.25)
+        val ratio = br.width.toFloat() / br.height.toFloat()
+        if (ratio < 0.7f || ratio > 1.4f) return null
+
         return android.graphics.RectF(
             br.x.toFloat(), br.y.toFloat(),
             (br.x + br.width).toFloat(), (br.y + br.height).toFloat()
@@ -102,7 +97,7 @@ object VisionEngine {
     }
 
     private fun derivePockets(board: android.graphics.RectF): List<PointF> {
-        val p = board.width() * 0.04f
+        val p = board.width() * 0.05f
         return listOf(
             PointF(board.left + p, board.top + p),
             PointF(board.right - p, board.top + p),
@@ -112,6 +107,6 @@ object VisionEngine {
     }
 
     private fun isStriker(h: Double, s: Double, v: Double): Boolean {
-        return h in 15.0..45.0 && s > 80.0 && v > 100.0
+        return h in 12.0..48.0 && s > 90.0 && v > 120.0
     }
 }

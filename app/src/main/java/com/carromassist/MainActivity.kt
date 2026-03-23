@@ -1,12 +1,13 @@
 package com.carromassist
 
 import android.app.Activity
-import android.content.Context
-import android.content.Intent
+import android.content.*
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -29,14 +30,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize OpenCV
         if (!OpenCVLoader.initDebug()) {
-            Toast.makeText(this, "OpenCV Load Failed!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Vision Engine Error", Toast.LENGTH_LONG).show()
         }
 
-        mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                as MediaProjectionManager
-
+        mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         statusText = findViewById(R.id.statusText)
         btnStart   = findViewById(R.id.btnStart)
         btnStop    = findViewById(R.id.btnStop)
@@ -49,11 +47,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkAndStart() {
         if (!Settings.canDrawOverlays(this)) {
-            statusText.text = "Grant Overlay permission..."
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             startActivityForResult(intent, REQUEST_OVERLAY)
             return
         }
@@ -61,21 +55,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestScreenCapture() {
-        statusText.text = "Starting capture..."
-        startActivityForResult(
-            mediaProjectionManager.createScreenCaptureIntent(),
-            REQUEST_SCREEN_CAPTURE
-        )
+        startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_OVERLAY) {
-            if (Settings.canDrawOverlays(this)) requestScreenCapture()
-        } else if (requestCode == REQUEST_SCREEN_CAPTURE) {
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                startOverlayService(resultCode, data)
-            }
+        if (requestCode == REQUEST_OVERLAY && Settings.canDrawOverlays(this)) requestScreenCapture()
+        else if (requestCode == REQUEST_SCREEN_CAPTURE && resultCode == Activity.RESULT_OK && data != null) {
+            startOverlayService(resultCode, data)
         }
     }
 
@@ -86,7 +73,7 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
         updateUI(true)
-        launchCarromPool()
+        launchCarromMatch()
     }
 
     private fun stopAssist() {
@@ -95,18 +82,36 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUI(running: Boolean) {
-        statusText.text = if (running) "✅ ACTIVE" else "⬤ Inactive"
-        btnStart.isEnabled = !running
-        btnStop.isEnabled  = running
+        statusText.text = if (running) "SENTRY: [ACTIVE]" else "SENTRY: [INACTIVE]"
+        btnStart.visibility = if (running) View.GONE else View.VISIBLE
+        btnStop.visibility  = if (running) View.VISIBLE else View.GONE
     }
 
-    private fun launchCarromPool() {
-        try {
-            val intent = packageManager.getLaunchIntentForPackage("com.miniclip.carrom")
-                ?: packageManager.getLaunchIntentForPackage("com.miniclip.carrompool")
-            intent?.let { startActivity(it) }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Manual launch required", Toast.LENGTH_SHORT).show()
+    private fun launchCarromMatch() {
+        // bitAIM+ logic: Exhaustive search for ALL carrom packages to ensure launch!
+        val packages = listOf(
+            "com.miniclip.carrom",
+            "com.miniclip.carrompool",
+            "com.miniclip.carrom.pool",
+            "com.miniclip.carrom.disc",
+            "com.miniclip.carromplay"
+        )
+        
+        var launched = false
+        for (pkg in packages) {
+            try {
+                val intent = packageManager.getLaunchIntentForPackage(pkg)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    startActivity(intent)
+                    launched = true
+                    break
+                }
+            } catch (_: Exception) {}
+        }
+
+        if (!launched) {
+            Toast.makeText(this, "Launch failed! Please start the game manually.", Toast.LENGTH_LONG).show()
         }
     }
 }
