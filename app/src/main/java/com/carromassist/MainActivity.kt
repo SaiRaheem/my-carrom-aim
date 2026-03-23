@@ -1,5 +1,7 @@
 package com.carromassist
 
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -29,7 +31,7 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize OpenCV
         if (!OpenCVLoader.initDebug()) {
-            Toast.makeText(this, "OpenCV Load Failed — critical error!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "OpenCV Load Failed!", Toast.LENGTH_LONG).show()
         }
 
         mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
@@ -46,9 +48,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAndStart() {
-        // Step 1: overlay permission
         if (!Settings.canDrawOverlays(this)) {
-            statusText.text = "Grant 'Display over other apps' permission…"
+            statusText.text = "Grant Overlay permission..."
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                 Uri.parse("package:$packageName")
@@ -56,12 +57,11 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(intent, REQUEST_OVERLAY)
             return
         }
-        // Step 2: screen capture permission
         requestScreenCapture()
     }
 
     private fun requestScreenCapture() {
-        statusText.text = "Requesting screen capture…"
+        statusText.text = "Starting capture..."
         startActivityForResult(
             mediaProjectionManager.createScreenCaptureIntent(),
             REQUEST_SCREEN_CAPTURE
@@ -70,17 +70,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        when (requestCode) {
-            REQUEST_OVERLAY -> {
-                if (Settings.canDrawOverlays(this)) requestScreenCapture()
-                else Toast.makeText(this, "Overlay permission denied", Toast.LENGTH_SHORT).show()
-            }
-            REQUEST_SCREEN_CAPTURE -> {
-                if (resultCode == Activity.RESULT_OK && data != null) {
-                    startOverlayService(resultCode, data)
-                } else {
-                    Toast.makeText(this, "Screen capture denied", Toast.LENGTH_SHORT).show()
-                }
+        if (requestCode == REQUEST_OVERLAY) {
+            if (Settings.canDrawOverlays(this)) requestScreenCapture()
+        } else if (requestCode == REQUEST_SCREEN_CAPTURE) {
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                startOverlayService(resultCode, data)
             }
         }
     }
@@ -92,7 +86,6 @@ class MainActivity : AppCompatActivity() {
         }
         startForegroundService(intent)
         updateUI(true)
-        // Bring the game to foreground
         launchCarromPool()
     }
 
@@ -102,19 +95,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUI(running: Boolean) {
-        statusText.text = if (running) "✅ Assist ACTIVE — switch to Carrom Pool" else "⬤ Inactive"
+        statusText.text = if (running) "✅ ACTIVE" else "⬤ Inactive"
         btnStart.isEnabled = !running
         btnStop.isEnabled  = running
     }
 
-    /** Tries to open Carrom Pool directly */
     private fun launchCarromPool() {
         try {
             val intent = packageManager.getLaunchIntentForPackage("com.miniclip.carrom")
                 ?: packageManager.getLaunchIntentForPackage("com.miniclip.carrompool")
             intent?.let { startActivity(it) }
         } catch (e: Exception) {
-             Toast.makeText(this, "Could not open game: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Manual launch required", Toast.LENGTH_SHORT).show()
         }
     }
 }
